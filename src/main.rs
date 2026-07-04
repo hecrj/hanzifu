@@ -118,25 +118,27 @@ impl Hanzifu {
                 match &mut self.screen {
                     Screen::Library {
                         current: Some(current),
-                    } => if let keyboard::Event::KeyPressed { modified_key, .. } = event {
-                        match modified_key.as_ref() {
-                            keyboard::Key::Named(keyboard::key::Named::ArrowLeft) => {
-                                if *current > 0 {
-                                    *current -= 1;
-                                } else {
-                                    *current = self.characters.len() - 1;
+                    } => {
+                        if let keyboard::Event::KeyPressed { modified_key, .. } = event {
+                            match modified_key.as_ref() {
+                                keyboard::Key::Named(keyboard::key::Named::ArrowLeft) => {
+                                    if *current > 0 {
+                                        *current -= 1;
+                                    } else {
+                                        *current = self.characters.len() - 1;
+                                    }
                                 }
-                            }
-                            keyboard::Key::Named(keyboard::key::Named::ArrowRight) => {
-                                *current += 1;
+                                keyboard::Key::Named(keyboard::key::Named::ArrowRight) => {
+                                    *current += 1;
 
-                                if *current >= self.characters.len() {
-                                    *current = 0;
+                                    if *current >= self.characters.len() {
+                                        *current = 0;
+                                    }
                                 }
+                                _ => {}
                             }
-                            _ => {}
                         }
-                    },
+                    }
                     Screen::Game(game) => match event {
                         keyboard::Event::KeyPressed {
                             modified_key: keyboard::Key::Named(keyboard::key::Named::Backspace),
