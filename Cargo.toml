@@ -1,0 +1,13 @@
+[package]
+name = "hanzifu"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+iced = { version = "0.15.0-dev", features = ["canvas"] }
+rand = "0.10"
+ron = "0.12"
+serde = { version = "1", features = ["derive"] }
+
+[patch.crates-io]
+iced.git = "https://github.com/iced-rs/iced.git"
