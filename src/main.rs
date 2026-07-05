@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 fn main() -> Result<(), iced::Error> {
     iced::application(Hanzifu::new, Hanzifu::update, Hanzifu::view)
+        .title("漢字傅")
         .subscription(Hanzifu::subscription)
         .theme(Theme::CatppuccinMocha)
         .default_font(Font::MONOSPACE)
@@ -76,6 +77,33 @@ struct Target {
 }
 
 impl Target {
+    fn view<'a>(&'a self, characters: &'a [Character], now: Instant) -> Element<'a, Message> {
+        let character = &characters[self.character];
+        let color = self.color(&Theme::CatppuccinMocha, now);
+
+        stack![
+            column![
+                text(&character.glyph)
+                    .font(Font::DEFAULT)
+                    .size(120)
+                    .line_height(1.0)
+                    .color(color),
+                text(&character.pinyin)
+                    .size(30)
+                    .line_height(1.0)
+                    .color(color),
+            ]
+            .align_x(Center)
+            .spacing(10)
+            .padding(50)
+        ]
+        .push_under(
+            canvas(Expiration { target: self, now })
+                .width(Fill)
+                .height(Fill),
+        )
+        .into()
+    }
     fn color(&self, theme: &Theme, now: Instant) -> Color {
         let palette = theme.palette();
 
@@ -116,6 +144,15 @@ impl Hanzifu {
         match message {
             Message::Keyboard(event) => {
                 match &mut self.screen {
+                    Screen::Library { current: None } => {
+                        if let keyboard::Event::KeyPressed {
+                            modified_key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                            ..
+                        } = event
+                        {
+                            self.screen = Screen::Title;
+                        }
+                    }
                     Screen::Library {
                         current: Some(current),
                     } => {
@@ -134,6 +171,9 @@ impl Hanzifu {
                                     if *current >= self.characters.len() {
                                         *current = 0;
                                     }
+                                }
+                                keyboard::Key::Named(keyboard::key::Named::Escape) => {
+                                    self.screen = Screen::Library { current: None };
                                 }
                                 _ => {}
                             }
@@ -177,7 +217,7 @@ impl Hanzifu {
                         }
                         _ => {}
                     },
-                    Screen::Title | Screen::Library { current: None } => {}
+                    Screen::Title => {}
                 }
 
                 Task::none()
@@ -304,29 +344,10 @@ impl Hanzifu {
             Screen::Game(game) => {
                 let board = responsive(|size| {
                     stack(game.targets.iter().rev().map(|target| {
-                        let character = &self.characters[target.character];
-
-                        pin(stack![
-                            container(
-                                text(&character.glyph)
-                                    .font(Font::DEFAULT)
-                                    .size(120)
-                                    .line_height(1.0)
-                                    .color(target.color(&Theme::CatppuccinMocha, game.now))
-                            )
-                            .padding(30)
-                        ]
-                        .push_under(
-                            canvas(Expiration {
-                                target,
-                                now: game.now,
-                            })
-                            .width(Fill)
-                            .height(Fill),
-                        ))
-                        .x((size.width - 180.0) * target.position.x)
-                        .y((size.height - 180.0) * target.position.y)
-                        .into()
+                        pin(target.view(&self.characters, game.now))
+                            .x((size.width - 220.0) * target.position.x)
+                            .y((size.height - 260.0) * target.position.y)
+                            .into()
                     }))
                     .width(Fill)
                     .height(Fill)
@@ -346,7 +367,30 @@ impl Hanzifu {
                     if game.is_over() {
                         stack![
                             board,
-                            center(text("Game Over").size(120).style(text::danger))
+                            center(
+                                column![
+                                    text("Game Over").size(120).style(text::danger),
+                                    scrollable(
+                                        grid(game.targets.iter().map(|target| {
+                                            container(self.characters[target.character].view())
+                                                .padding(10)
+                                                .center_x(Fill)
+                                                .style(container::bordered_box)
+                                                .into()
+                                        }))
+                                        .spacing(10)
+                                        .height(Shrink)
+                                        .fluid(400)
+                                    )
+                                    .spacing(10)
+                                    .height(Fill),
+                                    button(text("Restart").size(30).width(Fill).center())
+                                        .width(200)
+                                        .on_press(Message::NewGamePressed),
+                                ]
+                                .spacing(10)
+                                .align_x(Center)
+                            )
                         ]
                         .into()
                     } else {
@@ -404,23 +448,7 @@ impl Character {
             ]
             .spacing(10)
             .align_y(Center),
-            rich_text({
-                let mut spans = vec![];
-
-                for (i, meaning) in self.meanings.iter().enumerate() {
-                    if i > 0 {
-                        spans.push(
-                            span(", ").color(Theme::CatppuccinMocha.palette().secondary.base.color),
-                        );
-                    }
-
-                    spans.push(span(meaning));
-                }
-
-                spans
-            })
-            .on_link_click(never)
-            .size(20)
+            Meaning::view(&self.meanings),
         ]
         .align_x(Center)
         .spacing(10)
@@ -461,6 +489,29 @@ impl<'a> text::IntoFragment<'a> for &'a Bopomofo {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
 struct Meaning(String);
+
+impl Meaning {
+    fn view(meanings: &[Self]) -> Element<'_, Message> {
+        rich_text({
+            let mut spans = vec![];
+
+            for (i, meaning) in meanings.iter().enumerate() {
+                if i > 0 {
+                    spans.push(
+                        span(", ").color(Theme::CatppuccinMocha.palette().secondary.base.color),
+                    );
+                }
+
+                spans.push(span(meaning));
+            }
+
+            spans
+        })
+        .on_link_click(never)
+        .size(20)
+        .into()
+    }
+}
 
 impl<'a> text::IntoFragment<'a> for &'a Meaning {
     fn into_fragment(self) -> text::Fragment<'a> {
@@ -507,10 +558,12 @@ impl<Message> canvas::Program<Message> for Expiration<'_> {
             builder.build()
         };
 
+        let color = self.target.color(theme, self.now);
+
         frame.stroke(
             &arc,
             canvas::Stroke {
-                style: canvas::Style::Solid(self.target.color(theme, self.now)),
+                style: canvas::Style::Solid(color),
                 width: 10.0,
                 line_cap: canvas::LineCap::Round,
                 ..canvas::Stroke::default()
