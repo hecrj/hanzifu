@@ -422,7 +422,7 @@ impl Hanzifu {
 struct Character {
     glyph: Glyph,
     pinyin: Pinyin,
-    bopomofo: Bopomofo,
+    zhuyin: Zhuyin,
     meanings: Vec<Meaning>,
     difficulty: Difficulty,
 }
@@ -437,7 +437,7 @@ impl Character {
                     .line_height(1.0),
                 column![
                     text(&self.pinyin).size(50).line_height(1.0),
-                    text(&self.bopomofo)
+                    text(&self.zhuyin)
                         .size(30)
                         .style(|theme: &Theme| text::Style {
                             color: Some(theme.palette().secondary.base.color)
@@ -478,9 +478,9 @@ impl<'a> text::IntoFragment<'a> for &'a Pinyin {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(transparent)]
-struct Bopomofo(String);
+struct Zhuyin(String);
 
-impl<'a> text::IntoFragment<'a> for &'a Bopomofo {
+impl<'a> text::IntoFragment<'a> for &'a Zhuyin {
     fn into_fragment(self) -> text::Fragment<'a> {
         self.0.as_str().into()
     }
