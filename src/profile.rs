@@ -49,12 +49,7 @@ impl Profile {
         self.games.push(game);
     }
 
-    pub fn progress(
-        &self,
-        character: &character::Glyph,
-        at: Timestamp,
-        extra_hits: u64,
-    ) -> Progress {
+    pub fn progress(&self, character: &Character, at: Timestamp, extra_hits: u64) -> Progress {
         const INTERVAL: Duration = Duration::from_secs(60 * 60 * 24 * 14); // 2 weeks
 
         let recent_games = self.games.iter().rev().take_while(|game| {
@@ -65,8 +60,8 @@ impl Profile {
 
         let (hits, misses) = recent_games.fold((extra_hits, 0), |(hits, misses), game| {
             (
-                hits + game.hits.get(character).copied().unwrap_or_default(),
-                if &game.miss == character {
+                hits + game.hits.get(&character.glyph).copied().unwrap_or_default(),
+                if game.miss == character.glyph {
                     misses + 1
                 } else {
                     misses
@@ -74,8 +69,14 @@ impl Profile {
             )
         });
 
-        // TODO: Difficulty-based
-        if hits < 5 {
+        let minimum_hits = match character.difficulty {
+            character::Difficulty::Easy => 2,
+            character::Difficulty::Normal => 4,
+            character::Difficulty::Hard => 8,
+            character::Difficulty::Extreme => 10,
+        };
+
+        if hits < minimum_hits {
             return Progress::Learning;
         }
 
@@ -97,8 +98,9 @@ impl Profile {
     ) -> usize {
         characters
             .iter()
-            .map(|character| &character.glyph)
-            .position(|glyph| self.progress(glyph, at, extra_hits(glyph)) != Progress::Master)
+            .position(|character| {
+                self.progress(character, at, extra_hits(&character.glyph)) != Progress::Master
+            })
             .unwrap_or_default()
             .max(2)
     }

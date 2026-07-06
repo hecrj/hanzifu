@@ -117,4 +117,7 @@ impl<'a> text::IntoFragment<'a> for &'a Meaning {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub enum Difficulty {
     Easy,
+    Normal,
+    Hard,
+    Extreme,
 }
