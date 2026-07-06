@@ -3,11 +3,17 @@ name = "hanzifu"
 version = "0.1.0"
 edition = "2024"
 
+[lints.clippy]
+large_enum_variant = "allow"
+
 [dependencies]
-iced = { version = "0.15.0-dev", features = ["canvas"] }
+directories = "6"
+iced = { version = "0.15.0-dev", features = ["canvas", "tokio"] }
+jiff = { version = "0.2", features = ["serde"] }
 rand = "0.10"
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["fs", "rt-multi-thread"] }
 
 [patch.crates-io]
 iced.git = "https://github.com/iced-rs/iced.git"

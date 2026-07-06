@@ -1,21 +1,28 @@
+mod character;
+mod profile;
+mod time;
+
+use crate::character::Character;
+use crate::profile::Profile;
+use crate::time::{Duration, Instant, Time};
+
 use iced::animation::Interpolable;
+use iced::border;
 use iced::keyboard;
 use iced::mouse;
 use iced::widget::{
-    button, canvas, center, center_x, column, container, grid, pin, responsive, rich_text, right,
-    row, scrollable, space, span, stack, text,
+    button, canvas, center, center_x, column, container, grid, pin, responsive, right, row,
+    scrollable, space, stack, text,
 };
 use iced::window;
 use iced::{
     Center, Color, Element, Fill, Font, Point, Radians, Rectangle, Renderer, Shrink, Subscription,
-    Task, Theme, never,
+    Task, Theme,
 };
 
-use serde::Deserialize;
+use std::collections::BTreeMap;
 
-use std::time::{Duration, Instant};
-
-fn main() -> Result<(), iced::Error> {
+fn main() -> iced::Result {
     iced::application(Hanzifu::new, Hanzifu::update, Hanzifu::view)
         .title("漢字傅")
         .subscription(Hanzifu::subscription)
@@ -26,6 +33,7 @@ fn main() -> Result<(), iced::Error> {
 
 struct Hanzifu {
     characters: Vec<Character>,
+    profile: Profile,
     screen: Screen,
 }
 
@@ -37,16 +45,43 @@ enum Screen {
 
 struct Game {
     score: u64,
-    hits: u64,
     streak: u64,
+    hits: BTreeMap<character::Glyph, u64>,
+    cap: usize,
     targets: Vec<Target>,
     input: String,
-    start: Instant,
+    start: Time,
     now: Instant,
     last_target: Instant,
+    paused: Duration,
+    saved: bool,
+    pause: Option<(Instant, Pause)>,
+}
+
+enum Pause {
+    Unlocked(Vec<Character>),
 }
 
 impl Game {
+    fn new(characters: &[Character], profile: &Profile) -> Self {
+        let start = Time::now();
+
+        Self {
+            score: 0,
+            streak: 0,
+            hits: BTreeMap::new(),
+            cap: dbg!(profile.cap(characters, start.timestamp, |_| 0)),
+            targets: Vec::new(),
+            input: String::new(),
+            start,
+            now: Instant::now(),
+            last_target: Instant::now(),
+            paused: Duration::default(),
+            saved: false,
+            pause: None,
+        }
+    }
+
     fn combo(&self) -> u64 {
         self.streak / 5 + 1
     }
@@ -54,7 +89,7 @@ impl Game {
     fn level(&self) -> u64 {
         let duration = self.now - self.start;
 
-        duration.as_secs() / 30
+        duration.as_secs() / 10
     }
 
     fn spawn_interval(&self) -> Duration {
@@ -65,6 +100,49 @@ impl Game {
         self.targets
             .iter()
             .any(|target| self.now >= target.expiration)
+    }
+
+    fn tick(&mut self, characters: &[Character], profile: &Profile, now: Instant) {
+        if self.pause.is_some() {
+            return;
+        }
+
+        let level = self.level();
+
+        self.now = now - self.paused;
+
+        if self.level() != level {
+            let new_cap = profile.cap(characters, self.start.timestamp, |glyph| {
+                self.hits.get(glyph).copied().unwrap_or_default()
+            });
+
+            if new_cap > self.cap {
+                self.pause = Some((
+                    now,
+                    Pause::Unlocked(characters[self.cap + 1..=new_cap].to_vec()),
+                ));
+            }
+
+            dbg!(new_cap);
+
+            self.cap = new_cap;
+        }
+
+        if self.now - self.last_target >= self.spawn_interval() {
+            let character = rand::random_range(..=self.cap);
+
+            let x = rand::random_range(0.0..1.0);
+            let y = rand::random_range(0.0..1.0);
+
+            self.targets.push(Target {
+                character,
+                position: Point { x, y },
+                start: self.now,
+                expiration: self.now + Duration::from_secs(5),
+            });
+
+            self.last_target = self.now;
+        }
     }
 }
 
@@ -121,27 +199,49 @@ impl Target {
 
 #[derive(Debug, Clone)]
 enum Message {
+    ProfileLoaded(Result<Profile, profile::Error>),
+    ProfileSaved(Result<(), profile::Error>),
     Keyboard(keyboard::Event),
     Tick(Instant),
     NewGamePressed,
     LibraryPressed,
     QuitPressed,
+    ContinuePressed,
     CharacterSelected(usize),
 }
 
 impl Hanzifu {
-    pub fn new() -> Self {
+    pub fn new() -> (Self, Task<Message>) {
         let characters: Vec<Character> = ron::from_str(include_str!("../data/characters.ron"))
             .expect("characters must be deserializable");
 
-        Self {
-            characters,
-            screen: Screen::Title,
-        }
+        (
+            Self {
+                characters,
+                profile: Profile::new(),
+                screen: Screen::Title,
+            },
+            Task::perform(Profile::load(), Message::ProfileLoaded),
+        )
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::ProfileLoaded(Ok(history)) => {
+                self.profile = history;
+
+                Task::none()
+            }
+            Message::ProfileLoaded(Err(error)) => {
+                dbg!(error);
+
+                Task::none()
+            }
+            Message::ProfileSaved(result) => {
+                let _ = dbg!(result);
+
+                Task::none()
+            }
             Message::Keyboard(event) => {
                 match &mut self.screen {
                     Screen::Library { current: None } => {
@@ -179,11 +279,12 @@ impl Hanzifu {
                             }
                         }
                     }
+                    Screen::Game(game) if game.is_over() => {}
                     Screen::Game(game) => match event {
                         keyboard::Event::KeyPressed {
                             modified_key: keyboard::Key::Named(keyboard::key::Named::Backspace),
                             ..
-                        } => {
+                        } if game.pause.is_none() => {
                             let mut characters = game.input.chars();
                             let _ = characters.next_back();
 
@@ -192,18 +293,22 @@ impl Hanzifu {
                         keyboard::Event::KeyPressed {
                             modified_key: keyboard::Key::Named(keyboard::key::Named::Enter),
                             ..
-                        } => {
+                        } if game.pause.is_none() => {
                             if let Some(target) = game.targets.iter().position(|target| {
                                 self.characters[target.character]
                                     .meanings
                                     .iter()
-                                    .any(|meaning| meaning.0 == game.input)
+                                    .any(|meaning| meaning.matches(&game.input))
                             }) {
-                                game.hits += 1;
                                 game.streak += 1;
                                 game.score += game.combo();
 
-                                let _ = game.targets.remove(target);
+                                let target = game.targets.remove(target);
+
+                                *game
+                                    .hits
+                                    .entry(self.characters[target.character].glyph.clone())
+                                    .or_insert(0) += 1;
                             } else {
                                 game.streak = 0;
                             }
@@ -211,8 +316,14 @@ impl Hanzifu {
                             game.input.clear();
                         }
                         keyboard::Event::KeyPressed {
+                            modified_key: keyboard::Key::Named(keyboard::key::Named::Space),
+                            ..
+                        } if game.pause.is_some() => {
+                            return self.update(Message::ContinuePressed);
+                        }
+                        keyboard::Event::KeyPressed {
                             text: Some(text), ..
-                        } if text.is_ascii() => {
+                        } if game.pause.is_none() && text.is_ascii() && !text.trim().is_empty() => {
                             game.input.push_str(&text);
                         }
                         _ => {}
@@ -228,40 +339,30 @@ impl Hanzifu {
                 };
 
                 if game.is_over() {
-                    return Task::none();
-                }
+                    if game.saved {
+                        return Task::none();
+                    }
 
-                game.now = now;
+                    let miss = &self.characters[game.targets.first().unwrap().character];
 
-                if game.now - game.last_target >= game.spawn_interval() {
-                    let character = rand::random_range(..self.characters.len());
-
-                    let x = rand::random_range(0.0..1.0);
-                    let y = rand::random_range(0.0..1.0);
-
-                    game.targets.push(Target {
-                        character,
-                        position: Point { x, y },
-                        start: game.now,
-                        expiration: game.now + Duration::from_secs(5),
+                    self.profile.push(profile::Game {
+                        hits: game.hits.clone(),
+                        miss: miss.glyph.clone(),
+                        finished_at: jiff::Timestamp::now(),
+                        duration: game.now - game.start,
                     });
 
-                    game.last_target = game.now;
+                    game.saved = true;
+
+                    return Task::perform(self.profile.save(), Message::ProfileSaved);
                 }
+
+                game.tick(&self.characters, &self.profile, now);
 
                 Task::none()
             }
             Message::NewGamePressed => {
-                self.screen = Screen::Game(Game {
-                    score: 0,
-                    streak: 0,
-                    hits: 0,
-                    targets: Vec::new(),
-                    input: String::new(),
-                    start: Instant::now(),
-                    now: Instant::now(),
-                    last_target: Instant::now(),
-                });
+                self.screen = Screen::Game(Game::new(&self.characters, &self.profile));
 
                 Task::none()
             }
@@ -271,6 +372,20 @@ impl Hanzifu {
                 Task::none()
             }
             Message::QuitPressed => iced::exit(),
+            Message::ContinuePressed => {
+                let Screen::Game(game) = &mut self.screen else {
+                    return Task::none();
+                };
+
+                let Some((paused_at, _)) = &game.pause else {
+                    return Task::none();
+                };
+
+                game.paused += dbg!(Instant::now() - *paused_at);
+                game.pause = None;
+
+                Task::none()
+            }
             Message::CharacterSelected(i) => {
                 let Screen::Library { current } = &mut self.screen else {
                     return Task::none();
@@ -369,7 +484,7 @@ impl Hanzifu {
                             board,
                             center(
                                 column![
-                                    text("Game Over").size(120).style(text::danger),
+                                    text("Game Over").size(50).style(text::danger),
                                     scrollable(
                                         grid(game.targets.iter().map(|target| {
                                             container(self.characters[target.character].view())
@@ -383,7 +498,7 @@ impl Hanzifu {
                                         .fluid(400)
                                     )
                                     .spacing(10)
-                                    .height(Fill),
+                                    .height(Shrink.max(600)),
                                     button(text("Restart").size(30).width(Fill).center())
                                         .width(200)
                                         .on_press(Message::NewGamePressed),
@@ -392,9 +507,56 @@ impl Hanzifu {
                                 .align_x(Center)
                             )
                         ]
-                        .into()
                     } else {
-                        Element::from(board)
+                        stack![
+                            board,
+                            game.pause.as_ref().map(|pause| match pause {
+                                (_, Pause::Unlocked(characters)) => {
+                                    center(
+                                        container(
+                                            column![
+                                                text!(
+                                                    "New Character{} Unlocked!",
+                                                    if characters.len() == 1 { "" } else { "s" }
+                                                )
+                                                .size(50)
+                                                .style(text::primary),
+                                                scrollable(
+                                                    column(characters.iter().map(|character| {
+                                                        container(character.view())
+                                                            .padding(10)
+                                                            .center_x(Fill)
+                                                            .style(container::bordered_box)
+                                                            .into()
+                                                    }))
+                                                    .width(400)
+                                                    .spacing(10)
+                                                )
+                                                .spacing(20)
+                                                .height(Shrink.max(600)),
+                                                button(
+                                                    text("Continue").size(30).width(Fill).center()
+                                                )
+                                                .width(200)
+                                                .on_press(Message::ContinuePressed),
+                                            ]
+                                            .spacing(10)
+                                            .align_x(Center),
+                                        )
+                                        .padding(20)
+                                        .style(|_theme| {
+                                            container::Style {
+                                                background: Some(
+                                                    Color::BLACK.scale_alpha(0.8).into(),
+                                                ),
+                                                border: border::rounded(10),
+                                                ..container::Style::default()
+                                            }
+                                        }),
+                                    )
+                                }
+                            })
+                        ]
                     },
                     center_x(input)
                 ]
@@ -416,112 +578,6 @@ impl Hanzifu {
 
         Subscription::batch([keyboard, tick])
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-struct Character {
-    glyph: Glyph,
-    pinyin: Pinyin,
-    zhuyin: Zhuyin,
-    meanings: Vec<Meaning>,
-    difficulty: Difficulty,
-}
-
-impl Character {
-    pub fn view(&self) -> Element<'_, Message> {
-        column![
-            row![
-                text(&self.glyph)
-                    .size(120)
-                    .font(Font::DEFAULT)
-                    .line_height(1.0),
-                column![
-                    text(&self.pinyin).size(50).line_height(1.0),
-                    text(&self.zhuyin)
-                        .size(30)
-                        .style(|theme: &Theme| text::Style {
-                            color: Some(theme.palette().secondary.base.color)
-                        })
-                        .line_height(1.0)
-                ]
-                .spacing(10)
-            ]
-            .spacing(10)
-            .align_y(Center),
-            Meaning::view(&self.meanings),
-        ]
-        .align_x(Center)
-        .spacing(10)
-        .into()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(transparent)]
-struct Glyph(String);
-
-impl<'a> text::IntoFragment<'a> for &'a Glyph {
-    fn into_fragment(self) -> text::Fragment<'a> {
-        self.0.as_str().into()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(transparent)]
-struct Pinyin(String);
-
-impl<'a> text::IntoFragment<'a> for &'a Pinyin {
-    fn into_fragment(self) -> text::Fragment<'a> {
-        self.0.as_str().into()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(transparent)]
-struct Zhuyin(String);
-
-impl<'a> text::IntoFragment<'a> for &'a Zhuyin {
-    fn into_fragment(self) -> text::Fragment<'a> {
-        self.0.as_str().into()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(transparent)]
-struct Meaning(String);
-
-impl Meaning {
-    fn view(meanings: &[Self]) -> Element<'_, Message> {
-        rich_text({
-            let mut spans = vec![];
-
-            for (i, meaning) in meanings.iter().enumerate() {
-                if i > 0 {
-                    spans.push(
-                        span(", ").color(Theme::CatppuccinMocha.palette().secondary.base.color),
-                    );
-                }
-
-                spans.push(span(meaning));
-            }
-
-            spans
-        })
-        .on_link_click(never)
-        .size(20)
-        .into()
-    }
-}
-
-impl<'a> text::IntoFragment<'a> for &'a Meaning {
-    fn into_fragment(self) -> text::Fragment<'a> {
-        self.0.as_str().into()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-enum Difficulty {
-    Easy,
 }
 
 struct Expiration<'a> {
