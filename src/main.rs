@@ -70,7 +70,7 @@ impl Game {
             score: 0,
             streak: 0,
             hits: BTreeMap::new(),
-            cap: dbg!(profile.cap(characters, start.timestamp, |_| 0)),
+            cap: profile.cap(characters, start.timestamp, |_| 0),
             targets: Vec::new(),
             input: String::new(),
             start,
@@ -122,8 +122,6 @@ impl Game {
                     Pause::Unlocked(characters[self.cap + 1..=new_cap].to_vec()),
                 ));
             }
-
-            dbg!(new_cap);
 
             self.cap = new_cap;
         }
