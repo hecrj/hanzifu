@@ -127,10 +127,32 @@ impl Game {
         }
 
         if self.now - self.last_target >= self.spawn_interval() {
-            let character = rand::random_range(..=self.cap);
+            let progress = match rand::random_range(0.0..=1.0) {
+                ..=0.1 => profile::Progress::Master,
+                ..=0.3 => profile::Progress::Expert,
+                ..=0.6 => profile::Progress::Familiar,
+                _ => profile::Progress::Learning,
+            };
 
-            let x = rand::random_range(0.0..1.0);
-            let y = rand::random_range(0.0..1.0);
+            let index = rand::random_range(..=self.cap);
+
+            let character = characters[..=self.cap]
+                .iter()
+                .enumerate()
+                .filter_map(|(i, character)| {
+                    (profile.progress(
+                        character,
+                        self.start.timestamp,
+                        self.hits.get(&character.glyph).copied().unwrap_or_default(),
+                    ) == progress)
+                        .then_some(i)
+                })
+                .cycle()
+                .nth(index)
+                .unwrap_or(index);
+
+            let x = rand::random_range(0.0..=1.0);
+            let y = rand::random_range(0.0..=1.0);
 
             self.targets.push(Target {
                 character,
@@ -379,7 +401,7 @@ impl Hanzifu {
                     return Task::none();
                 };
 
-                game.paused += dbg!(Instant::now() - *paused_at);
+                game.paused += Instant::now() - *paused_at;
                 game.pause = None;
 
                 Task::none()
