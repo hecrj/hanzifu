@@ -84,8 +84,8 @@ impl Profile {
 
         match hit_rate {
             0.7..0.8 => Progress::Familiar,
-            0.8..0.9 => Progress::Expert,
-            0.9.. => Progress::Master,
+            0.9.. if hits > minimum_hits * 3 => Progress::Master,
+            0.8.. => Progress::Expert,
             _ => Progress::Learning,
         }
     }
@@ -99,7 +99,7 @@ impl Profile {
         characters
             .iter()
             .position(|character| {
-                self.progress(character, at, extra_hits(&character.glyph)) != Progress::Master
+                self.progress(character, at, extra_hits(&character.glyph)) < Progress::Expert
             })
             .unwrap_or_default()
             .max(2)

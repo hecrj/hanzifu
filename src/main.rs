@@ -127,35 +127,53 @@ impl Game {
         }
 
         if self.now - self.last_target >= self.spawn_interval() {
-            let progress = match rand::random_range(0.0..=1.0) {
-                ..=0.1 => profile::Progress::Master,
-                ..=0.3 => profile::Progress::Expert,
-                ..=0.6 => profile::Progress::Familiar,
-                _ => profile::Progress::Learning,
+            const LEVELS: &[profile::Progress] = &[
+                profile::Progress::Master,
+                profile::Progress::Expert,
+                profile::Progress::Familiar,
+                profile::Progress::Learning,
+            ];
+
+            let level = match rand::random_range(0.0..=1.0) {
+                ..=0.1 => 0,
+                ..=0.3 => 1,
+                ..=0.6 => 2,
+                _ => 3,
             };
 
             let index = rand::random_range(..=self.cap);
 
-            let character = characters[..=self.cap]
+            let Some((character, progress)) = LEVELS[level..]
                 .iter()
-                .enumerate()
-                .filter_map(|(i, character)| {
-                    (profile.progress(
-                        character,
-                        self.start.timestamp,
-                        self.hits.get(&character.glyph).copied().unwrap_or_default(),
-                    ) == progress)
-                        .then_some(i)
+                .copied()
+                .filter_map(|progress| {
+                    let character = characters[..=self.cap]
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, character)| {
+                            (profile.progress(
+                                character,
+                                self.start.timestamp,
+                                self.hits.get(&character.glyph).copied().unwrap_or_default(),
+                            ) == progress)
+                                .then_some(i)
+                        })
+                        .cycle()
+                        .nth(index)?;
+
+                    Some((character, progress))
                 })
-                .cycle()
-                .nth(index)
-                .unwrap_or(index);
+                .next()
+            else {
+                return;
+            };
 
             let x = rand::random_range(0.0..=1.0);
             let y = rand::random_range(0.0..=1.0);
 
             self.targets.push(Target {
                 character,
+                progress,
                 position: Point { x, y },
                 start: self.now,
                 expiration: self.now + Duration::from_secs(5),
@@ -169,6 +187,7 @@ impl Game {
 #[derive(Debug, Clone)]
 struct Target {
     character: usize,
+    progress: profile::Progress,
     position: Point,
     start: Instant,
     expiration: Instant,
@@ -202,14 +221,18 @@ impl Target {
         )
         .into()
     }
+
     fn color(&self, theme: &Theme, now: Instant) -> Color {
         let palette = theme.palette();
 
-        palette
-            .background
-            .base
-            .text
-            .interpolated(palette.danger.strong.color, self.expiration_factor(now))
+        let base = match self.progress {
+            profile::Progress::Learning => palette.warning.base.color,
+            profile::Progress::Familiar => palette.warning.weak.color,
+            profile::Progress::Expert => palette.background.base.text,
+            profile::Progress::Master => palette.success.base.color,
+        };
+
+        base.interpolated(palette.danger.strong.color, self.expiration_factor(now))
     }
 
     fn expiration_factor(&self, now: Instant) -> f32 {
