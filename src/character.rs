@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use iced::widget::{column, rich_text, row, span, text};
-use iced::{Center, Element, Font, Theme, never};
+use iced::{Center, Color, Element, Font, Theme, never};
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Character {
@@ -13,13 +13,14 @@ pub struct Character {
 }
 
 impl Character {
-    pub fn view<Message: 'static>(&self) -> Element<'_, Message> {
+    pub fn view<Message: 'static>(&self, highlight: Option<Color>) -> Element<'_, Message> {
         column![
             row![
                 text(&self.glyph)
                     .size(120)
                     .font(Font::DEFAULT)
-                    .line_height(1.0),
+                    .line_height(1.0)
+                    .color_maybe(highlight),
                 column![
                     text(&self.pinyin).size(50).line_height(1.0),
                     text(&self.zhuyin)

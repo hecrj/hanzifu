@@ -26,7 +26,7 @@ fn main() -> iced::Result {
     iced::application(Hanzifu::new, Hanzifu::update, Hanzifu::view)
         .title("漢字傅")
         .subscription(Hanzifu::subscription)
-        .theme(Theme::CatppuccinMocha)
+        .theme(Hanzifu::theme)
         .default_font(Font::MONOSPACE)
         .run()
 }
@@ -39,13 +39,18 @@ struct Hanzifu {
 
 enum Screen {
     Title,
-    Library { current: Option<usize> },
+    Library {
+        current: Option<usize>,
+        cap: usize,
+        now: Time,
+    },
     Game(Game),
 }
 
 struct Game {
     score: u64,
     streak: u64,
+    max_streak: u64,
     hits: BTreeMap<character::Glyph, u64>,
     cap: usize,
     targets: Vec<Target>,
@@ -69,6 +74,7 @@ impl Game {
         Self {
             score: 0,
             streak: 0,
+            max_streak: 0,
             hits: BTreeMap::new(),
             cap: profile.cap(characters, start.timestamp, |_| 0),
             targets: Vec::new(),
@@ -83,7 +89,7 @@ impl Game {
     }
 
     fn combo(&self) -> u64 {
-        self.streak / 5 + 1
+        1 + (self.streak as f64 / 5.0).powf(0.67) as u64
     }
 
     fn level(&self) -> u64 {
@@ -135,7 +141,7 @@ impl Game {
             ];
 
             let level = match rand::random_range(0.0..=1.0) {
-                ..=0.1 => 0,
+                ..=0.05 => 0,
                 ..=0.3 => 1,
                 ..=0.6 => 2,
                 _ => 3,
@@ -223,16 +229,10 @@ impl Target {
     }
 
     fn color(&self, theme: &Theme, now: Instant) -> Color {
-        let palette = theme.palette();
-
-        let base = match self.progress {
-            profile::Progress::Learning => palette.warning.base.color,
-            profile::Progress::Familiar => palette.warning.weak.color,
-            profile::Progress::Expert => palette.background.base.text,
-            profile::Progress::Master => palette.success.base.color,
-        };
-
-        base.interpolated(palette.danger.strong.color, self.expiration_factor(now))
+        self.progress.color(theme).interpolated(
+            theme.palette().danger.strong.color,
+            self.expiration_factor(now),
+        )
     }
 
     fn expiration_factor(&self, now: Instant) -> f32 {
@@ -287,7 +287,7 @@ impl Hanzifu {
             }
             Message::Keyboard(event) => {
                 match &mut self.screen {
-                    Screen::Library { current: None } => {
+                    Screen::Library { current: None, .. } => {
                         if let keyboard::Event::KeyPressed {
                             modified_key: keyboard::Key::Named(keyboard::key::Named::Escape),
                             ..
@@ -298,6 +298,7 @@ impl Hanzifu {
                     }
                     Screen::Library {
                         current: Some(current),
+                        ..
                     } => {
                         if let keyboard::Event::KeyPressed { modified_key, .. } = event {
                             match modified_key.as_ref() {
@@ -316,7 +317,7 @@ impl Hanzifu {
                                     }
                                 }
                                 keyboard::Key::Named(keyboard::key::Named::Escape) => {
-                                    self.screen = Screen::Library { current: None };
+                                    self.open_library();
                                 }
                                 _ => {}
                             }
@@ -344,6 +345,7 @@ impl Hanzifu {
                                     .any(|meaning| meaning.matches(&game.input))
                             }) {
                                 game.streak += 1;
+                                game.max_streak = game.max_streak.max(game.streak);
                                 game.score += game.combo();
 
                                 let target = game.targets.remove(target);
@@ -389,6 +391,8 @@ impl Hanzifu {
                     let miss = &self.characters[game.targets.first().unwrap().character];
 
                     self.profile.push(profile::Game {
+                        score: game.score,
+                        max_streak: game.max_streak,
                         hits: game.hits.clone(),
                         miss: miss.glyph.clone(),
                         finished_at: jiff::Timestamp::now(),
@@ -410,7 +414,7 @@ impl Hanzifu {
                 Task::none()
             }
             Message::LibraryPressed => {
-                self.screen = Screen::Library { current: None };
+                self.open_library();
 
                 Task::none()
             }
@@ -430,7 +434,7 @@ impl Hanzifu {
                 Task::none()
             }
             Message::CharacterSelected(i) => {
-                let Screen::Library { current } = &mut self.screen else {
+                let Screen::Library { current, .. } = &mut self.screen else {
                     return Task::none();
                 };
 
@@ -465,32 +469,47 @@ impl Hanzifu {
                 )
                 .into()
             }
-            Screen::Library { current: None } => container(
-                scrollable(
-                    grid(self.characters.iter().enumerate().map(|(i, character)| {
-                        button(
-                            container(character.view())
-                                .style(container::bordered_box)
-                                .center_x(Fill)
-                                .padding(10),
-                        )
-                        .padding(0)
-                        .style(button::text)
-                        .on_press(Message::CharacterSelected(i))
-                        .into()
-                    }))
-                    .fluid(400)
-                    .height(Shrink)
+            Screen::Library {
+                current: None,
+                cap,
+                now,
+            } => {
+                container(
+                    scrollable(
+                        grid(self.characters.iter().take(cap + 1).enumerate().map(
+                            |(i, character)| {
+                                button(
+                                    container(
+                                        character.view(Some(
+                                            self.profile
+                                                .progress(character, now.timestamp, 0)
+                                                .color(&self.theme()),
+                                        )),
+                                    )
+                                    .style(container::bordered_box)
+                                    .center_x(Fill)
+                                    .padding(10),
+                                )
+                                .padding(0)
+                                .style(button::text)
+                                .on_press(Message::CharacterSelected(i))
+                                .into()
+                            },
+                        ))
+                        .fluid(400)
+                        .height(Shrink)
+                        .spacing(10),
+                    )
                     .spacing(10),
                 )
-                .spacing(10),
-            )
-            .padding(10)
-            .into(),
+                .padding(10)
+                .into()
+            }
             Screen::Library {
                 current: Some(current),
+                ..
             } => {
-                let character = self.characters[*current].view();
+                let character = self.characters[*current].view(None);
 
                 let total_characters = text!("{} / {}", *current + 1, self.characters.len());
 
@@ -530,7 +549,7 @@ impl Hanzifu {
                                     text("Game Over").size(50).style(text::danger),
                                     scrollable(
                                         grid(game.targets.iter().map(|target| {
-                                            container(self.characters[target.character].view())
+                                            container(self.characters[target.character].view(None))
                                                 .padding(10)
                                                 .center_x(Fill)
                                                 .style(container::bordered_box)
@@ -566,7 +585,7 @@ impl Hanzifu {
                                                 .style(text::primary),
                                                 scrollable(
                                                     column(characters.iter().map(|character| {
-                                                        container(character.view())
+                                                        container(character.view(None))
                                                             .padding(10)
                                                             .center_x(Fill)
                                                             .style(container::bordered_box)
@@ -620,6 +639,20 @@ impl Hanzifu {
         };
 
         Subscription::batch([keyboard, tick])
+    }
+
+    fn theme(&self) -> Theme {
+        Theme::CatppuccinMocha
+    }
+
+    fn open_library(&mut self) {
+        let now = Time::now();
+
+        self.screen = Screen::Library {
+            current: None,
+            cap: self.profile.cap(&self.characters, now.timestamp, |_| 0),
+            now,
+        };
     }
 }
 

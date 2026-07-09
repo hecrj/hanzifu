@@ -10,6 +10,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use iced::{Color, Theme};
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Profile {
@@ -101,7 +103,7 @@ impl Profile {
             .position(|character| {
                 self.progress(character, at, extra_hits(&character.glyph)) < Progress::Expert
             })
-            .unwrap_or_default()
+            .unwrap_or(characters.len() - 1)
             .max(2)
     }
 
@@ -116,6 +118,19 @@ pub enum Progress {
     Familiar,
     Expert,
     Master,
+}
+
+impl Progress {
+    pub fn color(self, theme: &Theme) -> Color {
+        let palette = theme.palette();
+
+        match self {
+            Progress::Learning => palette.danger.base.color,
+            Progress::Familiar => palette.warning.base.color,
+            Progress::Expert => palette.background.base.text,
+            Progress::Master => palette.success.base.color,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -140,6 +155,8 @@ impl From<ron::error::SpannedError> for Error {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Game {
+    pub score: u64,
+    pub max_streak: u64,
     pub hits: BTreeMap<character::Glyph, u64>,
     pub miss: character::Glyph,
     pub finished_at: Timestamp,
