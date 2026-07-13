@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use iced::widget::{column, rich_text, row, span, text};
-use iced::{Center, Color, Element, Font, Theme, never};
+use iced::border;
+use iced::theme::palette;
+use iced::widget::{column, container, rich_text, row, span, text};
+use iced::{Center, Element, Fill, Font, Theme, never};
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Character {
@@ -13,31 +15,50 @@ pub struct Character {
 }
 
 impl Character {
-    pub fn view<Message: 'static>(&self, highlight: Option<Color>) -> Element<'_, Message> {
-        column![
-            row![
-                text(&self.glyph)
-                    .size(120)
-                    .font(Font::DEFAULT)
-                    .line_height(1.0)
-                    .color_maybe(highlight),
-                column![
-                    text(&self.pinyin).size(50).line_height(1.0),
-                    text(&self.zhuyin)
-                        .size(30)
-                        .style(|theme: &Theme| text::Style {
-                            color: Some(theme.palette().secondary.base.color)
-                        })
+    pub fn view<Message: 'static>(
+        &self,
+        highlight: Option<palette::Swatch>,
+    ) -> Element<'_, Message> {
+        container(
+            column![
+                row![
+                    text(&self.glyph)
+                        .size(120)
+                        .font(Font::DEFAULT)
                         .line_height(1.0)
+                        .color_maybe(highlight.map(|swatch| swatch.base.color)),
+                    column![
+                        text(&self.pinyin).size(50).line_height(1.0),
+                        text(&self.zhuyin)
+                            .size(30)
+                            .line_height(1.0)
+                            .color_maybe(highlight.map(|swatch| swatch.weak.color))
+                    ]
+                    .spacing(10)
                 ]
                 .spacing(10)
+                .align_y(Center),
+                Meaning::view(&self.meanings),
             ]
-            .spacing(10)
-            .align_y(Center),
-            Meaning::view(&self.meanings),
-        ]
-        .align_x(Center)
-        .spacing(10)
+            .align_x(Center)
+            .spacing(10),
+        )
+        .style(move |theme| {
+            let Some(swatch) = highlight else {
+                return container::bordered_box(theme);
+            };
+
+            container::Style {
+                text_color: Some(swatch.base.color),
+                background: Some(swatch.weak.color.scale_alpha(0.05).into()),
+                border: border::rounded(2)
+                    .width(1)
+                    .color(swatch.weak.color.scale_alpha(0.7)),
+                ..container::Style::default()
+            }
+        })
+        .center_x(Fill)
+        .padding(10)
         .into()
     }
 }

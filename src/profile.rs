@@ -10,7 +10,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use iced::{Color, Theme};
+use iced::Theme;
+use iced::theme::palette;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -85,8 +86,8 @@ impl Profile {
         let hit_rate = hits as f32 / (hits + misses) as f32;
 
         match hit_rate {
+            0.98.. if hits > minimum_hits * 5 => Progress::Master,
             0.7..0.8 => Progress::Familiar,
-            0.9.. if hits > minimum_hits * 3 => Progress::Master,
             0.8.. => Progress::Expert,
             _ => Progress::Learning,
         }
@@ -121,14 +122,14 @@ pub enum Progress {
 }
 
 impl Progress {
-    pub fn color(self, theme: &Theme) -> Color {
+    pub fn swatch(self, theme: &Theme) -> palette::Swatch {
         let palette = theme.palette();
 
         match self {
-            Progress::Learning => palette.danger.base.color,
-            Progress::Familiar => palette.warning.base.color,
-            Progress::Expert => palette.background.base.text,
-            Progress::Master => palette.success.base.color,
+            Progress::Learning => palette.danger,
+            Progress::Familiar => palette.warning,
+            Progress::Expert => palette.primary,
+            Progress::Master => palette.success,
         }
     }
 }

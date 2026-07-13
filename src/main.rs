@@ -229,7 +229,7 @@ impl Target {
     }
 
     fn color(&self, theme: &Theme, now: Instant) -> Color {
-        self.progress.color(theme).interpolated(
+        self.progress.swatch(theme).base.color.interpolated(
             theme.palette().danger.strong.color,
             self.expiration_factor(now),
         )
@@ -338,11 +338,13 @@ impl Hanzifu {
                             modified_key: keyboard::Key::Named(keyboard::key::Named::Enter),
                             ..
                         } if game.pause.is_none() => {
+                            let input = game.input.trim();
+
                             if let Some(target) = game.targets.iter().position(|target| {
                                 self.characters[target.character]
                                     .meanings
                                     .iter()
-                                    .any(|meaning| meaning.matches(&game.input))
+                                    .any(|meaning| meaning.matches(input))
                             }) {
                                 game.streak += 1;
                                 game.max_streak = game.max_streak.max(game.streak);
@@ -368,7 +370,7 @@ impl Hanzifu {
                         }
                         keyboard::Event::KeyPressed {
                             text: Some(text), ..
-                        } if game.pause.is_none() && text.is_ascii() && !text.trim().is_empty() => {
+                        } if game.pause.is_none() && text.is_ascii() => {
                             game.input.push_str(&text);
                         }
                         _ => {}
@@ -473,38 +475,31 @@ impl Hanzifu {
                 current: None,
                 cap,
                 now,
-            } => {
-                container(
-                    scrollable(
-                        grid(self.characters.iter().take(cap + 1).enumerate().map(
-                            |(i, character)| {
-                                button(
-                                    container(
-                                        character.view(Some(
-                                            self.profile
-                                                .progress(character, now.timestamp, 0)
-                                                .color(&self.theme()),
-                                        )),
-                                    )
-                                    .style(container::bordered_box)
-                                    .center_x(Fill)
-                                    .padding(10),
-                                )
-                                .padding(0)
-                                .style(button::text)
-                                .on_press(Message::CharacterSelected(i))
-                                .into()
-                            },
-                        ))
-                        .fluid(400)
-                        .height(Shrink)
-                        .spacing(10),
-                    )
+            } => container(
+                scrollable(
+                    grid(self.characters.iter().enumerate().map(|(i, character)| {
+                        button(character.view(if i <= *cap {
+                            Some(
+                                self.profile
+                                    .progress(character, now.timestamp, 0)
+                                    .swatch(&self.theme()),
+                            )
+                        } else {
+                            Some(self.theme().palette().secondary)
+                        }))
+                        .padding(0)
+                        .style(button::text)
+                        .on_press(Message::CharacterSelected(i))
+                        .into()
+                    }))
+                    .fluid(400)
+                    .height(Shrink)
                     .spacing(10),
                 )
-                .padding(10)
-                .into()
-            }
+                .spacing(10),
+            )
+            .padding(10)
+            .into(),
             Screen::Library {
                 current: Some(current),
                 ..
@@ -549,11 +544,7 @@ impl Hanzifu {
                                     text("Game Over").size(50).style(text::danger),
                                     scrollable(
                                         grid(game.targets.iter().map(|target| {
-                                            container(self.characters[target.character].view(None))
-                                                .padding(10)
-                                                .center_x(Fill)
-                                                .style(container::bordered_box)
-                                                .into()
+                                            self.characters[target.character].view(None)
                                         }))
                                         .spacing(10)
                                         .height(Shrink)
@@ -584,13 +575,11 @@ impl Hanzifu {
                                                 .size(50)
                                                 .style(text::primary),
                                                 scrollable(
-                                                    column(characters.iter().map(|character| {
-                                                        container(character.view(None))
-                                                            .padding(10)
-                                                            .center_x(Fill)
-                                                            .style(container::bordered_box)
-                                                            .into()
-                                                    }))
+                                                    column(
+                                                        characters.iter().map(|character| {
+                                                            character.view(None)
+                                                        })
+                                                    )
                                                     .width(400)
                                                     .spacing(10)
                                                 )
