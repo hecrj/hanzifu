@@ -15,51 +15,57 @@ pub struct Character {
 }
 
 impl Character {
-    pub fn view<Message: 'static>(
+    pub fn details<Message: 'static>(
         &self,
         highlight: Option<palette::Swatch>,
     ) -> Element<'_, Message> {
-        container(
-            column![
-                row![
-                    text(&self.glyph)
-                        .size(120)
-                        .font(Font::DEFAULT)
+        column![
+            row![
+                text(&self.glyph)
+                    .size(120)
+                    .font(Font::DEFAULT)
+                    .line_height(1.0)
+                    .color_maybe(highlight.map(|swatch| swatch.base.color)),
+                column![
+                    text(&self.pinyin).size(50).line_height(1.0),
+                    text(&self.zhuyin)
+                        .size(30)
                         .line_height(1.0)
-                        .color_maybe(highlight.map(|swatch| swatch.base.color)),
-                    column![
-                        text(&self.pinyin).size(50).line_height(1.0),
-                        text(&self.zhuyin)
-                            .size(30)
-                            .line_height(1.0)
-                            .color_maybe(highlight.map(|swatch| swatch.weak.color))
-                    ]
-                    .spacing(10)
+                        .color_maybe(highlight.map(|swatch| swatch.weak.color))
                 ]
                 .spacing(10)
-                .align_y(Center),
-                Meaning::view(&self.meanings),
             ]
-            .align_x(Center)
-            .spacing(10),
-        )
-        .style(move |theme| {
-            let Some(swatch) = highlight else {
-                return container::bordered_box(theme);
-            };
-
-            container::Style {
-                text_color: Some(swatch.base.color),
-                background: Some(swatch.weak.color.scale_alpha(0.05).into()),
-                border: border::rounded(2)
-                    .width(1)
-                    .color(swatch.weak.color.scale_alpha(0.7)),
-                ..container::Style::default()
-            }
-        })
-        .center_x(Fill)
-        .padding(10)
+            .spacing(10)
+            .align_y(Center),
+            Meaning::view(&self.meanings),
+        ]
+        .align_x(Center)
+        .spacing(10)
         .into()
+    }
+
+    pub fn card<Message: 'static>(
+        &self,
+        highlight: Option<palette::Swatch>,
+    ) -> Element<'_, Message> {
+        container(self.details(highlight))
+            .style(move |theme| {
+                let Some(swatch) = highlight else {
+                    return container::bordered_box(theme);
+                };
+
+                container::Style {
+                    text_color: Some(swatch.base.color),
+                    background: Some(swatch.weak.color.scale_alpha(0.05).into()),
+                    border: border::rounded(2)
+                        .width(1)
+                        .color(swatch.weak.color.scale_alpha(0.7)),
+                    ..container::Style::default()
+                }
+            })
+            .center_x(Fill)
+            .padding(10)
+            .into()
     }
 }
 

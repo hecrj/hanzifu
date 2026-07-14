@@ -17,7 +17,7 @@ use iced::widget::{
 use iced::window;
 use iced::{
     Center, Color, Element, Fill, Font, Point, Radians, Rectangle, Renderer, Shrink, Subscription,
-    Task, Theme,
+    Task, Theme, Vector,
 };
 
 use std::collections::BTreeMap;
@@ -41,6 +41,7 @@ enum Screen {
     Title,
     Library {
         current: Option<usize>,
+        cache: canvas::Cache,
         cap: usize,
         now: Time,
     },
@@ -298,6 +299,7 @@ impl Hanzifu {
                     }
                     Screen::Library {
                         current: Some(current),
+                        cache,
                         ..
                     } => {
                         if let keyboard::Event::KeyPressed { modified_key, .. } = event {
@@ -308,6 +310,8 @@ impl Hanzifu {
                                     } else {
                                         *current = self.characters.len() - 1;
                                     }
+
+                                    cache.clear();
                                 }
                                 keyboard::Key::Named(keyboard::key::Named::ArrowRight) => {
                                     *current += 1;
@@ -315,6 +319,8 @@ impl Hanzifu {
                                     if *current >= self.characters.len() {
                                         *current = 0;
                                     }
+
+                                    cache.clear();
                                 }
                                 keyboard::Key::Named(keyboard::key::Named::Escape) => {
                                     self.open_library();
@@ -475,10 +481,11 @@ impl Hanzifu {
                 current: None,
                 cap,
                 now,
+                ..
             } => container(
                 scrollable(
                     grid(self.characters.iter().enumerate().map(|(i, character)| {
-                        button(character.view(if i <= *cap {
+                        button(character.card(if i <= *cap {
                             Some(
                                 self.profile
                                     .progress(character, now.timestamp, 0)
@@ -502,16 +509,110 @@ impl Hanzifu {
             .into(),
             Screen::Library {
                 current: Some(current),
+                now,
+                cache,
                 ..
             } => {
-                let character = self.characters[*current].view(None);
-
+                let character = &self.characters[*current];
                 let total_characters = text!("{} / {}", *current + 1, self.characters.len());
 
-                column![center(character), right(total_characters)]
-                    .padding(10)
-                    .spacing(10)
-                    .into()
+                struct Progress<'a> {
+                    character: &'a Character,
+                    profile: &'a Profile,
+                    now: Time,
+                    cache: &'a canvas::Cache,
+                }
+
+                impl canvas::Program<Message> for Progress<'_> {
+                    type State = ();
+
+                    fn draw(
+                        &self,
+                        _state: &Self::State,
+                        renderer: &Renderer,
+                        theme: &Theme,
+                        bounds: Rectangle,
+                        _cursor: mouse::Cursor,
+                    ) -> Vec<canvas::Geometry> {
+                        vec![self.cache.draw(renderer, bounds.size(), |frame| {
+                            const PADDING: f32 = 40.0;
+
+                            let width = frame.width() - PADDING;
+                            let height = frame.height() - PADDING;
+
+                            frame.translate(Vector::new(PADDING, PADDING) / 2.0);
+
+                            let games: Vec<_> = self
+                                .profile
+                                .progress_with_rate(self.character, self.now.timestamp, 0)
+                                .collect();
+
+                            let x_scale = width / games.len().saturating_sub(1) as f32;
+
+                            let mut games = games
+                                .into_iter()
+                                .enumerate()
+                                .map(|(i, (hit_rate, progress))| {
+                                    let y = height * (1.0 - f32::from(hit_rate));
+                                    let point = Point::new(i as f32 * x_scale, y);
+
+                                    (point, progress)
+                                })
+                                .peekable();
+
+                            while let Some((point, progress)) = games.next() {
+                                let color = progress.swatch(theme).base.color;
+
+                                frame.fill(&canvas::Path::circle(point, 5.0), color);
+
+                                if let Some((next_point, next_progress)) = games.peek() {
+                                    let next_color = next_progress.swatch(theme).base.color;
+
+                                    let gradient =
+                                        canvas::gradient::Linear::new(point, *next_point)
+                                            .add_stop(0.0, color)
+                                            .add_stop(1.0, next_color);
+
+                                    frame.stroke(
+                                        &canvas::Path::line(point, *next_point),
+                                        canvas::Stroke {
+                                            style: canvas::Style::Gradient(
+                                                canvas::Gradient::Linear(gradient),
+                                            ),
+                                            ..canvas::Stroke::default()
+                                        },
+                                    );
+                                }
+                            }
+                        })]
+                    }
+                }
+
+                column![
+                    center(
+                        column![
+                            character.details(None),
+                            container(
+                                canvas(Progress {
+                                    character,
+                                    cache,
+                                    profile: &self.profile,
+                                    now: *now,
+                                })
+                                .width(Fill.max(600))
+                                .height(Fill.max(300))
+                            )
+                            .style(container::bordered_box)
+                            .padding(10)
+                        ]
+                        .spacing(10)
+                        .align_x(Center)
+                    ),
+                    right(total_characters)
+                ]
+                .padding(10)
+                .spacing(10)
+                .into()
             }
             Screen::Game(game) => {
                 let board = responsive(|size| {
@@ -544,7 +645,7 @@ impl Hanzifu {
                                     text("Game Over").size(50).style(text::danger),
                                     scrollable(
                                         grid(game.targets.iter().map(|target| {
-                                            self.characters[target.character].view(None)
+                                            self.characters[target.character].card(None)
                                         }))
                                         .spacing(10)
                                         .height(Shrink)
@@ -577,7 +678,7 @@ impl Hanzifu {
                                                 scrollable(
                                                     column(
                                                         characters.iter().map(|character| {
-                                                            character.view(None)
+                                                            character.card(None)
                                                         })
                                                     )
                                                     .width(400)
@@ -640,6 +741,7 @@ impl Hanzifu {
         self.screen = Screen::Library {
             current: None,
             cap: self.profile.cap(&self.characters, now.timestamp, |_| 0),
+            cache: canvas::Cache::new(),
             now,
         };
     }

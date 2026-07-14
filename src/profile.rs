@@ -1,5 +1,6 @@
 use crate::character::{self, Character};
 
+use function::Tuple;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
@@ -53,44 +54,55 @@ impl Profile {
     }
 
     pub fn progress(&self, character: &Character, at: Timestamp, extra_hits: u64) -> Progress {
+        self.progress_with_rate(character, at, extra_hits)
+            .last()
+            .map(Tuple::second)
+            .unwrap_or(Progress::Learning)
+    }
+
+    pub fn progress_with_rate(
+        &self,
+        character: &Character,
+        at: Timestamp,
+        extra_hits: u64,
+    ) -> impl Iterator<Item = (HitRate, Progress)> {
         const INTERVAL: Duration = Duration::from_secs(60 * 60 * 24 * 14); // 2 weeks
 
-        let recent_games = self.games.iter().rev().take_while(|game| {
+        let recent_games = self.games.iter().rev().take_while(move |game| {
             let seconds = (at - game.finished_at).get_seconds();
 
             seconds >= 0 && Duration::from_secs(seconds as u64) <= INTERVAL
         });
 
-        let (hits, misses) = recent_games.fold((extra_hits, 0), |(hits, misses), game| {
-            (
-                hits + game.hits.get(&character.glyph).copied().unwrap_or_default(),
-                if game.miss == character.glyph {
-                    misses + 1
-                } else {
-                    misses
-                },
-            )
-        });
+        let mut hits = extra_hits;
+        let mut misses = 0;
 
-        let minimum_hits = match character.difficulty {
-            character::Difficulty::Easy => 2,
-            character::Difficulty::Normal => 4,
-            character::Difficulty::Hard => 8,
-            character::Difficulty::Extreme => 10,
-        };
+        recent_games.map(move |game| {
+            hits += game.hits.get(&character.glyph).copied().unwrap_or_default();
 
-        if hits < minimum_hits {
-            return Progress::Learning;
-        }
+            if game.miss == character.glyph {
+                misses += 1;
+            }
 
-        let hit_rate = hits as f32 / (hits + misses) as f32;
+            let minimum_hits = match character.difficulty {
+                character::Difficulty::Easy => 2,
+                character::Difficulty::Normal => 4,
+                character::Difficulty::Hard => 8,
+                character::Difficulty::Extreme => 10,
+            };
 
-        match hit_rate {
-            0.98.. if hits > minimum_hits * 5 => Progress::Master,
-            0.7..0.8 => Progress::Familiar,
-            0.8.. => Progress::Expert,
-            _ => Progress::Learning,
-        }
+            let hit_rate = hits as f32 / (hits + misses).max(1) as f32;
+
+            let progress = match hit_rate {
+                _ if hits < minimum_hits => Progress::Learning,
+                0.98.. if hits > minimum_hits * 5 => Progress::Master,
+                0.7..0.8 => Progress::Familiar,
+                0.8.. => Progress::Expert,
+                _ => Progress::Learning,
+            };
+
+            (HitRate(hit_rate), progress)
+        })
     }
 
     pub fn cap(
@@ -131,6 +143,15 @@ impl Progress {
             Progress::Expert => palette.primary,
             Progress::Master => palette.success,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct HitRate(f32);
+
+impl From<HitRate> for f32 {
+    fn from(hit_rate: HitRate) -> Self {
+        hit_rate.0
     }
 }
 

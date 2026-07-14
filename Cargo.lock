@@ -870,6 +870,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
+name = "function"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b935cfa1419641823830c0c685818c81853e9a3b1ea28e0bb592e4ee85df79ac"
+
+[[package]]
 name = "futures"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1104,6 +1110,7 @@ name = "hanzifu"
 version = "0.1.0"
 dependencies = [
  "directories",
+ "function",
  "iced",
  "jiff",
  "rand",

@@ -8,6 +8,7 @@ large_enum_variant = "allow"
 
 [dependencies]
 directories = "6"
+function = "0.3"
 iced = { version = "0.15.0-dev", features = ["canvas", "tokio"] }
 jiff = { version = "0.2", features = ["serde"] }
 rand = "0.10"
