@@ -537,48 +537,105 @@ impl Hanzifu {
                         vec![self.cache.draw(renderer, bounds.size(), |frame| {
                             const PADDING: f32 = 40.0;
 
+                            let palette = theme.palette();
                             let width = frame.width() - PADDING;
                             let height = frame.height() - PADDING;
 
                             frame.translate(Vector::new(PADDING, PADDING) / 2.0);
 
-                            let games: Vec<_> = self
+                            let checkpoints: Vec<_> = self
                                 .profile
-                                .progress_with_rate(self.character, self.now.timestamp, 0)
+                                .checkpoints(self.character, self.now.timestamp, 0)
                                 .collect();
 
-                            let x_scale = width / games.len().saturating_sub(1) as f32;
+                            let max_hits = checkpoints
+                                .iter()
+                                .map(|checkpoint| checkpoint.hits)
+                                .next_back()
+                                .unwrap_or_default()
+                                .max(1);
 
-                            let mut games = games
+                            let x_scale = width / checkpoints.len().saturating_sub(1) as f32;
+                            let y_scale_hits = height / max_hits as f32;
+
+                            let mut checkpoints = checkpoints
                                 .into_iter()
                                 .enumerate()
-                                .map(|(i, (hit_rate, progress))| {
-                                    let y = height * (1.0 - f32::from(hit_rate));
-                                    let point = Point::new(i as f32 * x_scale, y);
+                                .map(|(i, checkpoint)| {
+                                    let y = height * (1.0 - f32::from(checkpoint.hit_rate));
+                                    let position = Point::new(i as f32 * x_scale, y);
 
-                                    (point, progress)
+                                    (position, checkpoint)
                                 })
                                 .peekable();
 
-                            while let Some((point, progress)) = games.next() {
-                                let color = progress.swatch(theme).base.color;
+                            while let Some((position, checkpoint)) = checkpoints.next() {
+                                let color = checkpoint.progress.swatch(theme).base.color;
 
-                                frame.fill(&canvas::Path::circle(point, 5.0), color);
+                                frame.fill(&canvas::Path::circle(position, 3.0), color);
 
-                                if let Some((next_point, next_progress)) = games.peek() {
-                                    let next_color = next_progress.swatch(theme).base.color;
+                                let hits_position = Point::new(
+                                    position.x - 1.5,
+                                    height - checkpoint.hits as f32 * y_scale_hits,
+                                );
+
+                                if let Some((next_position, next_checkpoint)) = checkpoints.peek() {
+                                    let next_color =
+                                        next_checkpoint.progress.swatch(theme).base.color;
 
                                     let gradient =
-                                        canvas::gradient::Linear::new(point, *next_point)
+                                        canvas::gradient::Linear::new(position, *next_position)
                                             .add_stop(0.0, color)
                                             .add_stop(1.0, next_color);
 
+                                    let next_hits_position = Point::new(
+                                        next_position.x - 1.5,
+                                        height - next_checkpoint.hits as f32 * y_scale_hits,
+                                    );
+
                                     frame.stroke(
-                                        &canvas::Path::line(point, *next_point),
+                                        &canvas::Path::line(hits_position, next_hits_position),
+                                        canvas::Stroke {
+                                            style: canvas::Style::Solid(
+                                                palette.secondary.base.color,
+                                            ),
+                                            ..canvas::Stroke::default()
+                                        },
+                                    );
+
+                                    frame.stroke(
+                                        &canvas::Path::line(position, *next_position),
                                         canvas::Stroke {
                                             style: canvas::Style::Gradient(
                                                 canvas::Gradient::Linear(gradient),
                                             ),
+                                            width: 2.0,
+                                            ..canvas::Stroke::default()
+                                        },
+                                    );
+                                }
+
+                                if checkpoint.game.miss == self.character.glyph {
+                                    let cross = {
+                                        const RADIUS: f32 = 3.0;
+
+                                        let mut path = canvas::path::Builder::new();
+
+                                        path.move_to(hits_position + Vector::new(-RADIUS, -RADIUS));
+                                        path.line_to(hits_position + Vector::new(RADIUS, RADIUS));
+
+                                        path.move_to(hits_position + Vector::new(RADIUS, -RADIUS));
+                                        path.line_to(hits_position + Vector::new(-RADIUS, RADIUS));
+
+                                        path.build()
+                                    };
+
+                                    frame.stroke(
+                                        &cross,
+                                        canvas::Stroke {
+                                            style: canvas::Style::Solid(palette.danger.base.color),
+                                            line_cap: canvas::LineCap::Round,
+                                            width: 2.0,
                                             ..canvas::Stroke::default()
                                         },
                                     );
@@ -587,6 +644,23 @@ impl Hanzifu {
                         })]
                     }
                 }
+
+                let (progress, hits, misses, hit_rate) = self
+                    .profile
+                    .checkpoints(character, now.timestamp, 0)
+                    .last()
+                    .map(|checkpoint| {
+                        (
+                            checkpoint.progress,
+                            checkpoint.hits,
+                            checkpoint.misses,
+                            checkpoint.hit_rate,
+                        )
+                    })
+                    .unwrap_or_default();
+
+                let theme = self.theme();
+                let palette = theme.palette();
 
                 column![
                     center(
@@ -599,12 +673,26 @@ impl Hanzifu {
                                     profile: &self.profile,
                                     now: *now,
                                 })
-                                .width(Fill.max(600))
-                                .height(Fill.max(300))
+                                .width(Fill)
+                                .height(Fill.max(200))
                             )
                             .style(container::bordered_box)
-                            .padding(10)
+                            .padding(10),
+                            column![
+                                text!("{:.1}%", f32::from(hit_rate) * 100.0)
+                                    .size(40)
+                                    .color(progress.swatch(&theme).base.color)
+                                    .line_height(1.0),
+                                row![
+                                    text(hits).color(palette.success.base.color).size(20),
+                                    text(misses).color(palette.danger.base.color).size(20),
+                                ]
+                                .spacing(10)
+                            ]
+                            .spacing(10)
+                            .align_x(Center)
                         ]
+                        .width(Fill.max(600))
                         .spacing(10)
                         .align_x(Center)
                     ),
