@@ -103,6 +103,10 @@ impl Game {
         Duration::from_secs_f32((2.5 * 0.93f32.powi(self.level() as i32)).max(0.4))
     }
 
+    fn target_duration(&self) -> Duration {
+        Duration::from_secs_f32((8.0 * 0.93f32.powi(self.level() as i32)).max(1.5))
+    }
+
     fn is_over(&self) -> bool {
         self.targets
             .iter()
@@ -183,7 +187,7 @@ impl Game {
                 progress,
                 position: Point { x, y },
                 start: self.now,
-                expiration: self.now + Duration::from_secs(5),
+                expiration: self.now + self.target_duration(),
             });
 
             self.last_target = self.now;
