@@ -100,11 +100,11 @@ impl Game {
     }
 
     fn spawn_interval(&self) -> Duration {
-        Duration::from_secs_f32((2.5 * 0.93f32.powi(self.level() as i32)).max(0.4))
+        Duration::from_secs_f32((2.5 * 0.98f32.powi(self.level() as i32)).max(0.4))
     }
 
     fn target_duration(&self) -> Duration {
-        Duration::from_secs_f32((8.0 * 0.93f32.powi(self.level() as i32)).max(1.5))
+        Duration::from_secs_f32((8.0 * 0.99f32.powi(self.level() as i32)).max(2.0))
     }
 
     fn is_over(&self) -> bool {
@@ -146,9 +146,9 @@ impl Game {
             ];
 
             let level = match rand::random_range(0.0..=1.0) {
-                ..=0.05 => 0,
-                ..=0.3 => 1,
-                ..=0.6 => 2,
+                ..=0.1 => 0,
+                ..=0.5 => 1,
+                ..=0.7 => 2,
                 _ => 3,
             };
 
@@ -208,6 +208,7 @@ impl Target {
     fn view<'a>(&'a self, characters: &'a [Character], now: Instant) -> Element<'a, Message> {
         let character = &characters[self.character];
         let color = self.color(&Theme::CatppuccinMocha, now);
+        let pinyin = character.pinyin.as_str();
 
         stack![
             column![
@@ -216,10 +217,15 @@ impl Target {
                     .size(120)
                     .line_height(1.0)
                     .color(color),
-                text(&character.pinyin)
-                    .size(30)
-                    .line_height(1.0)
-                    .color(color),
+                text(
+                    pinyin
+                        .chars()
+                        .take((self.expiration_factor(now) * 1.25 * pinyin.len() as f32) as usize)
+                        .collect::<String>()
+                )
+                .size(30)
+                .line_height(1.0)
+                .color(color),
             ]
             .align_x(Center)
             .spacing(10)
@@ -858,14 +864,17 @@ impl<Message> canvas::Program<Message> for Expiration<'_> {
         use std::f32::consts::PI;
 
         let mut frame = canvas::Frame::new(renderer, bounds.size());
+        let center = frame.center();
+        let radius = frame.width().min(frame.height()) / 2.0;
+        let color = self.target.color(theme, self.now);
 
         let arc = {
             let mut builder = canvas::path::Builder::new();
             let factor = self.target.expiration_factor(self.now);
 
             builder.arc(canvas::path::Arc {
-                center: frame.center(),
-                radius: frame.width().min(frame.height()) / 2.0 - 5.0,
+                center,
+                radius: radius - 5.0,
                 start_angle: Radians(PI / 2.0),
                 end_angle: Radians(PI / 2.0 - 2.0 * PI * (1.0 - factor)),
             });
@@ -873,7 +882,10 @@ impl<Message> canvas::Program<Message> for Expiration<'_> {
             builder.build()
         };
 
-        let color = self.target.color(theme, self.now);
+        frame.fill(
+            &canvas::Path::circle(frame.center(), radius - 2.5),
+            theme.palette().background.base.color.scale_alpha(0.8),
+        );
 
         frame.stroke(
             &arc,

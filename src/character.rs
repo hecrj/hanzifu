@@ -89,6 +89,12 @@ impl<'a> text::IntoFragment<'a> for &'a Glyph {
 #[serde(transparent)]
 pub struct Pinyin(String);
 
+impl Pinyin {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 impl<'a> text::IntoFragment<'a> for &'a Pinyin {
     fn into_fragment(self) -> text::Fragment<'a> {
         self.0.as_str().into()

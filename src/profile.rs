@@ -99,8 +99,8 @@ impl Profile {
                 let progress = match hit_rate {
                     _ if hits < minimum_hits => Progress::Learning,
                     0.98.. if hits > minimum_hits * 5 => Progress::Master,
+                    0.8.. if hits > minimum_hits * 3 => Progress::Expert,
                     0.7..0.8 => Progress::Familiar,
-                    0.8.. => Progress::Expert,
                     _ => Progress::Learning,
                 };
 
